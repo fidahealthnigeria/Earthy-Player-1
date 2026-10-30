@@ -3,15 +3,14 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Earthy — Silent Grounding & Micro-Breaks</title>
+<title>Earthy — YouTube Ambient Player</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body, html { width: 100%; height: 100%; background: #0c0f0a; overflow: hidden; color: #fff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
 
-/* Video container handling dual elements for seamless crossfading */
-.video-container { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1; }
-video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 2s ease-in-out; }
-video.active { opacity: 1; z-index: 2; }
+/* Fill the screen with the YouTube player and disable clicks so it acts like a background */
+#player-container { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; pointer-events: none; overflow: hidden; }
+#youtube-player { position: absolute; top: 50%; left: 50%; width: 100vw; height: 56.25vw; min-height: 100vh; min-width: 177.77vh; transform: translate(-50%, -50%); pointer-events: none; }
 
 /* Minimalist UI Controls Overlay */
 .controls { position: fixed; bottom: 40px; right: 40px; z-index: 10; display: flex; align-items: center; gap: 14px; opacity: 0.4; transition: opacity 0.3s ease; }
@@ -26,9 +25,8 @@ button:active { transform: scale(0.98); }
 </head>
 <body>
 
-<div class="video-container">
-<video id="vid1" autoplay muted playsinline></video>
-<video id="vid2" autoplay muted playsinline></video>
+<div id="player-container">
+  <div id="youtube-player"></div>
 </div>
 
 <div class="controls">
@@ -36,73 +34,91 @@ button:active { transform: scale(0.98); }
 <button onclick="nextClip()">Skip</button>
 </div>
 
+<!-- Load YouTube IFrame Player API -->
+<script src="https://www.youtube.com/iframe_api"></script>
 <script>
-// Configuration
-let clipDuration = 15; // Target duration in seconds per clip before auto-advancing
+let clipDuration = 15; // Time in seconds per clip before auto-advancing
 let playlist = [];
 let currentIndex = 0;
+let player;
 let timer = null;
 
-const vid1 = document.getElementById('vid1');
-const vid2 = document.getElementById('vid2');
-let activeVideo = vid1;
-let inactiveVideo = vid2;
-
-// Load playlist from JSON
-async function initPlayer() {
-try {
-const response = await fetch('videos.json');
-playlist = await response.json();
-
-if (!playlist || playlist.length === 0) {
-document.getElementById('counter').innerText = "No videos found";
-return;
+// Automatically called by the YouTube API script when it finishes loading
+function onYouTubeIframeAPIReady() {
+  fetch('videos.json')
+    .then(res => res.json())
+    .then(data => {
+      playlist = data;
+      if (!playlist || playlist.length === 0) {
+        document.getElementById('counter').innerText = "No videos found";
+        return;
+      }
+      
+      player = new YT.Player('youtube-player', {
+        height: '100%',
+        width: '100%',
+        videoId: playlist[currentIndex],
+        playerVars: {
+          'autoplay': 1,
+          'controls': 0,
+          'disablekb': 1,
+          'fs': 0,
+          'iv_load_policy': 3,
+          'loop': 1,
+          'modestbranding': 1,
+          'playsinline': 1,
+          'rel': 0,
+          'autohide': 1
+        },
+        events: {
+          'onReady': onPlayerReady,
+          'onStateChange': onPlayerStateChange
+        }
+      });
+    })
+    .catch(err => {
+      console.error('Error loading videos.json:', err);
+      document.getElementById('counter').innerText = "Failed to load playlist";
+    });
 }
 
-// Shuffle playlist slightly or start from index 0
-playClip(currentIndex);
-} catch (err) {
-console.error('Error loading videos.json:', err);
-document.getElementById('counter').innerText = "Failed to load playlist";
+function onPlayerReady(event) {
+  event.target.mute(); // Mute for silent ambient background playback
+  event.target.playVideo();
+  updateUI();
+  resetTimer();
 }
+
+function onPlayerStateChange(event) {
+  // If a video finishes playing naturally, move to the next one
+  if (event.data === YT.PlayerState.ENDED) {
+    nextClip();
+  }
 }
 
 function playClip(index) {
-if (playlist.length === 0) return;
-
-// Update counter UI
-document.getElementById('counter').innerText = `${index + 1} / ${playlist.length}`;
-
-// Set source on the inactive video element
-inactiveVideo.src = playlist[index];
-inactiveVideo.load();
-
-inactiveVideo.oncanplaythrough = () => {
-inactiveVideo.play().then(() => {
-// Perform crossfade
-inactiveVideo.classList.add('active');
-activeVideo.classList.remove('active');
-
-// Swap references
-let temp = activeVideo;
-activeVideo = inactiveVideo;
-inactiveVideo = temp;
-
-// Clear old timer and set new auto-advance timer
-clearTimeout(timer);
-timer = setTimeout(nextClip, clipDuration * 1000);
-}).catch(e => console.log("Playback prevented:", e));
-};
+  if (!player || playlist.length === 0) return;
+  currentIndex = index;
+  player.loadVideoById(playlist[currentIndex]);
+  player.mute(); // Keep muted
+  updateUI();
+  resetTimer();
 }
 
 function nextClip() {
-if (playlist.length === 0) return;
-currentIndex = (currentIndex + 1) % playlist.length;
-playClip(currentIndex);
+  if (playlist.length === 0) return;
+  currentIndex = (currentIndex + 1) % playlist.length;
+  playClip(currentIndex);
 }
 
-// Start on page load
-window.onload = initPlayer;
+function resetTimer() {
+  clearTimeout(timer);
+  timer = setTimeout(nextClip, clipDuration * 1000);
+}
+
+function updateUI() {
+  document.getElementById('counter').innerText = `${currentIndex + 1} / ${playlist.length}`;
+}
 </script>
 </body>
 </html>
