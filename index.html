@@ -12,15 +12,38 @@ body, html { width: 100%; height: 100%; background: #0c0f0a; overflow: hidden; c
 #player-container { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; pointer-events: none; overflow: hidden; }
 #youtube-player { position: absolute; top: 50%; left: 50%; width: 100vw; height: 56.25vw; min-height: 100vh; min-width: 177.77vh; transform: translate(-50%, -50%); pointer-events: none; }
 
-/* Minimalist UI Controls Overlay */
-.controls { position: fixed; bottom: 40px; right: 40px; z-index: 10; display: flex; align-items: center; gap: 14px; opacity: 0.4; transition: opacity 0.3s ease; }
+/* Minimalist UI Controls Overlay with high-contrast dark glass for bright/white backgrounds */
+.controls { position: fixed; bottom: 40px; right: 40px; z-index: 10; display: flex; align-items: center; gap: 14px; opacity: 0.5; transition: opacity 0.3s ease; }
 .controls:hover { opacity: 1; }
 
-button { background: rgba(255, 255, 255, 0.12); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.2); color: #fff; padding: 10px 20px; border-radius: 30px; cursor: pointer; font-size: 14px; letter-spacing: 0.5px; transition: background 0.2s, transform 0.2s; }
-button:hover { background: rgba(255, 255, 255, 0.25); transform: scale(1.03); }
+button { 
+  background: rgba(10, 10, 10, 0.65); 
+  backdrop-filter: blur(12px); 
+  -webkit-backdrop-filter: blur(12px); 
+  border: 1px solid rgba(255, 255, 255, 0.3); 
+  color: #fff; 
+  padding: 10px 20px; 
+  border-radius: 30px; 
+  cursor: pointer; 
+  font-size: 14px; 
+  letter-spacing: 0.5px; 
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  transition: background 0.2s, transform 0.2s, border-color 0.2s; 
+}
+button:hover { background: rgba(30, 30, 30, 0.85); border-color: rgba(255, 255, 255, 0.6); transform: scale(1.03); }
 button:active { transform: scale(0.98); }
 
-.status { font-size: 12px; color: rgba(255, 255, 255, 0.6); letter-spacing: 1px; text-transform: uppercase; }
+.status { 
+  font-size: 12px; 
+  color: rgba(255, 255, 255, 0.85); 
+  background: rgba(0, 0, 0, 0.5);
+  padding: 6px 12px;
+  border-radius: 20px;
+  backdrop-filter: blur(8px);
+  letter-spacing: 1px; 
+  text-transform: uppercase; 
+  box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+}
 </style>
 </head>
 <body>
@@ -45,20 +68,29 @@ let player;
 let timer = null;
 let isMuted = true;
 
+// Shuffle playlist array on load for fresh ambient playback
+function shufflePlaylist(array) {
+  for (let i = array.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [array[i], array[j]] = [array[j], array[i]];
+  }
+  return array;
+}
+
 // Automatically called by the YouTube API script when it finishes loading
 function onYouTubeIframeAPIReady() {
-  // Using ./videos.json ensures GitHub Pages looks in the correct relative folder
   fetch('./videos.json')
     .then(res => {
       if (!res.ok) throw new Error("HTTP error " + res.status);
       return res.json();
     })
     .then(data => {
-      playlist = data;
-      if (!playlist || playlist.length === 0) {
+      if (!data || data.length === 0) {
         document.getElementById('counter').innerText = "No videos found";
         return;
       }
+      
+      playlist = shufflePlaylist(data);
       
       player = new YT.Player('youtube-player', {
         height: '100%',
@@ -89,14 +121,15 @@ function onYouTubeIframeAPIReady() {
 }
 
 function onPlayerReady(event) {
-  event.target.mute(); // Mute for silent ambient background playback
+  event.target.mute(); // Mute initially for ambient background playback
+  isMuted = true;
+  document.getElementById('mute-btn').innerText = "Unmute Audio (M)";
   event.target.playVideo();
   updateUI();
   resetTimer();
 }
 
 function onPlayerStateChange(event) {
-  // If a video finishes playing naturally, move to the next one
   if (event.data === YT.PlayerState.ENDED) {
     nextClip();
   }
@@ -106,7 +139,8 @@ function toggleSound() {
   if (!player) return;
   const muteBtn = document.getElementById('mute-btn');
   
-  if (isMuted) {
+  // Check actual player state or fallback to tracker variable
+  if (player.isMuted()) {
     player.unmute();
     player.setVolume(50);
     muteBtn.innerText = "Mute Audio (M)";
@@ -123,13 +157,15 @@ function playClip(index) {
   currentIndex = index;
   player.loadVideoById(playlist[currentIndex]);
   
-  // Keep sound state consistent when changing clips
-  if (isMuted) {
-    player.mute();
-  } else {
-    player.unmute();
-    player.setVolume(50);
-  }
+  // Enforce sound preference after loading the new video snippet
+  setTimeout(() => {
+    if (isMuted) {
+      player.mute();
+    } else {
+      player.unmute();
+      player.setVolume(50);
+    }
+  }, 250);
   
   updateUI();
   resetTimer();
@@ -153,7 +189,7 @@ function updateUI() {
 // Keyboard Shortcuts Listener
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Space') {
-    e.preventDefault(); // Prevents the page from scrolling down
+    e.preventDefault(); 
     nextClip();
   }
   if (e.code === 'KeyM') {
