@@ -139,9 +139,8 @@ function initializePlayersIfReady() {
     return;
   }
 
-  // Populate theme dropdown dynamically from JSON keys
   const selectElem = document.getElementById('theme-select');
-  selectElem.innerHTML = ""; // Clear existing options if re-running
+  selectElem.innerHTML = "";
   themeNames.forEach(theme => {
     let opt = document.createElement('option');
     opt.value = theme;
@@ -149,7 +148,6 @@ function initializePlayersIfReady() {
     selectElem.appendChild(opt);
   });
 
-  // Check localStorage for saved theme, fallback to first theme
   let savedTheme = localStorage.getItem('earthy_selected_theme');
   let activeTheme = (savedTheme && themesData[savedTheme]) ? savedTheme : themeNames[0];
   
@@ -221,7 +219,6 @@ function onPlayerStateChange(event, pNum) {
 function changeTheme(themeName) {
   if (!themesData[themeName] || themesData[themeName].length === 0) return;
   
-  // Save preference to localStorage
   localStorage.setItem('earthy_selected_theme', themeName);
   
   currentPlaylist = shuffleArray(themesData[themeName]);
@@ -288,7 +285,7 @@ function nextClip() {
         setTimeout(() => {
           activeObj.pauseVideo();
           isTransitioning = false;
-        }, 1500); // Matches CSS transition duration
+        }, 1500);
       }
     } catch (err) {}
   }, 100);
