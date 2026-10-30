@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Earthy — YouTube Ambient Player</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body, html { width: 100%; height: 100%; background: #0c0f0a; overflow: hidden; color: #fff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+
+/* Fill screen with absolute dark background to cover any brief gaps */
+#player-container { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; pointer-events: none; overflow: hidden; background: #0c0f0a; }
+
+/* Stacked player wrappers for smooth fading */
+.player-wrapper {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 100vw;
+  height: 56.25vw;
+  min-height: 100vh;
+  min-width: 177.77vh;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  transition: opacity 1.5s ease-in-out; /* Smooth fade duration */
+}
+
+#wrap1 { z-index: 2; opacity: 1; }
+#wrap2 { z-index: 1; opacity: 0; }
+
+.youtube-player { width: 100%; height: 100%; pointer-events: none; }
+
+/* Solid high-contrast control panel */
+.controls { 
+  position: fixed; 
+  bottom: 40px; 
+  right: 40px; 
+  z-index: 10; 
+  display: flex; 
+  align-items: center; 
+  gap: 12px; 
+  background: rgba(15, 15, 15, 0.92);
+  padding: 10px 16px;
+  border-radius: 40px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  opacity: 0.6; 
+  transition: opacity 0.3s ease; 
+}
+.controls:hover { opacity: 1; }
+
+button, select { 
+  background: rgba(255, 255, 255, 0.12); 
+  border: 1px solid rgba(255, 255, 255, 0.2); 
+  color: #fff; 
+  padding: 8px 16px; 
+  border-radius: 24px; 
+  cursor: pointer; 
+  font-size: 13px; 
+  font-weight: 500;
+  letter-spacing: 0.5px; 
+  transition: background 0.2s, transform 0.2s, border-color 0.2s; 
+}
+button:hover, select:hover { background: rgba(255, 255, 255, 0.25); border-color: rgba(255, 255, 255, 0.5); transform: scale(1.03); }
+select option { background: #1a1a1a; color: #fff; }
+
+.status { 
+  font-size: 11px; 
+  color: rgba(255, 255, 255, 0.8); 
+  letter-spacing: 1px; 
+  text-transform: uppercase; 
+  padding: 0 6px;
+}
+</style>
+</head>
+<body>
+
+<div id="player-container">
+  <div id="wrap1" class="player-wrapper"><div id="player1" class="youtube-player"></div></div>
+  <div id="wrap2" class="player-wrapper"><div id="player2" class="youtube-player"></div></div>
+</div>
+
+<div class="controls">
+  <select id="theme-select" onchange="changeTheme(this.value)"></select>
+  <span id="counter" class="status">Loading...</span>
+  <button id="mute-btn" onclick="toggleSound()">Unmute Audio (M)</button>
+  <button onclick="nextClip()">Skip (Space)</button>
+</div>
+
+<script src="https://www.youtube.com/iframe_api"></script>
+<script>
+let clipDuration = 15;
+let themesData = {};
+let currentPlaylist = [];
+let currentIndex = 0;
+let player1, player2;
+let activePlayerNum = 1; // 1 or 2
+let timer = null;
+let isMuted = true;
+let isTransitioning = false;
+
+function shuffleArray(array) {
+  let arr = [...array];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+function onYouTubeIframeAPIReady() {
+  fetch('./videos.json')
+    .then(res => {
+      if (!res.ok) throw new Error("HTTP error " + res.status);
+      return res.json();
+    })
+    .then(data => {
+      themesData = data;
+      const themeNames = Object.keys(themesData);
+      
+      if (themeNames.length === 0) {
+        document.getElementById('counter').innerText = "No themes found";
+        return;
+      }
+      
+      const selectElem = document.getElementById('theme-select');
+      themeNames.forEach(theme => {
+        let opt = document.createElement('option');
+        opt.value = theme;
+        opt.innerText = theme;
+        selectElem.appendChild(opt);
+      });
+      
+      let savedTheme = localStorage.getItem('earthy_selected_theme');
+      let activeTheme = (savedTheme && themesData[savedTheme]) ? savedTheme : themeNames[0];
+      
+      selectElem.value = activeTheme;
+      currentPlaylist = shuffleArray(themesData[activeTheme]);
+      
+      const commonVars = {
+        'autoplay': 1,
+        'controls': 0,
+        'disablekb': 1,
+        'fs': 0,
+        'iv_load_policy': 3,
+        'loop': 1,
+        'modestbranding': 1,
+        'playsinline': 1,
+        'rel': 0,
+        'autohide': 1
+      };
+
+      player1 = new YT.Player('player1', {
+        height: '100%',
+        width: '100%',
+        videoId: currentPlaylist[currentIndex],
+        playerVars: commonVars,
+        events: {
+          'onReady': onPlayerReady,
+          'onStateChange': (e) => onPlayerStateChange(e, 1)
+        }
+      });
+
+      player2 = new YT.Player('player2', {
+        height: '100%',
+        width: '100%',
+        videoId: currentPlaylist[(currentIndex + 1) % currentPlaylist.length],
+        playerVars: commonVars,
+        events: {
+          'onStateChange': (e) => onPlayerStateChange(e, 2)
+        }
+      });
+    })
+    .catch(err => {
+      console.error('Error loading videos.json:', err);
+      document.getElementById('counter').innerText = "Failed to load playlists";
+    });
+}
+
+let readyCount = 0;
+function onPlayerReady(event) {
+  readyCount++;
+  if (readyCount === 1) {
+    player1.mute();
+    player2.mute();
+    player1.playVideo();
+    player2.pauseVideo(); // Buffer player 2 silently in background
+    
+    isMuted = true;
+    document.getElementById('mute-btn').innerText = "Unmute Audio (M)";
+    updateUI();
+    resetTimer();
+  }
+}
+
+function onPlayerStateChange(event, pNum) {
+  // If a video finishes naturally
+  if (event.data === YT.PlayerState.ENDED) {
+    nextClip();
+  }
+}
+
+function changeTheme(themeName) {
+  if (!themesData[themeName]) return;
+  localStorage.setItem('earthy_selected_theme', themeName);
+  
+  currentPlaylist = shuffleArray(themesData[themeName]);
+  currentIndex = 0;
+  
+  // Instantly load new theme into active player
+  let activeObj = activePlayerNum === 1 ? player1 : player2;
+  activeObj.loadVideoById(currentPlaylist[currentIndex]);
+  
+  updateUI();
+  resetTimer();
+}
+
+function toggleSound() {
+  const muteBtn = document.getElementById('mute-btn');
+  let activeObj = activePlayerNum === 1 ? player1 : player2;
+  
+  if (isMuted) {
+    player1.unMute();
+    player2.unMute();
+    player1.setVolume(50);
+    player2.setVolume(50);
+    muteBtn.innerText = "Mute Audio (M)";
+    isMuted = false;
+  } else {
+    player1.mute();
+    player2.mute();
+    muteBtn.innerText = "Unmute Audio (M)";
+    isMuted = true;
+  }
+}
+
+function nextClip() {
+  if (currentPlaylist.length === 0 || isTransitioning) return;
+  isTransitioning = true;
+  
+  currentIndex = (currentIndex + 1) % currentPlaylist.length;
+  
+  let nextPlayerNum = activePlayerNum === 1 ? 2 : 1;
+  let activeWrap = document.getElementById(`wrap${activePlayerNum}`);
+  let nextWrap = document.getElementById(`wrap${nextPlayerNum}`);
+  let activeObj = activePlayerNum === 1 ? player1 : player2;
+  let nextObj = activePlayerNum === 1 ? player2 : player1;
+  
+  // 1. Load next video into the hidden background player
+  nextObj.loadVideoById(currentPlaylist[currentIndex]);
+  
+  // Sync audio state for the incoming player
+  if (isMuted) {
+    nextObj.mute();
+  } else {
+    nextObj.unMute();
+    nextObj.setVolume(50);
+  }
+
+  // 2. Poll briefly until the background player starts playing smoothly, then fade
+  let checkInterval = setInterval(() => {
+    try {
+      if (nextObj.getPlayerState() === YT.PlayerState.PLAYING) {
+        clearInterval(checkInterval);
+        
+        // Bring next player wrapper to top layer and trigger CSS crossfade
+        nextWrap.style.zIndex = "2";
+        activeWrap.style.zIndex = "1";
+        nextWrap.style.opacity = "1";
+        activeWrap.style.opacity = "0";
+        
+        // Switch active tracker
+        activePlayerNum = nextPlayerNum;
+        
+        // Pause old player after fade completes
+        setTimeout(() => {
+          activeObj.pauseVideo();
+          isTransitioning = false;
+        }, 1500); // Matches CSS transition duration
+      }
+    } catch (err) {
+      // Ignore transient state errors during loading
+    }
+  }, 100);
+
+  updateUI();
+  resetTimer();
+}
+
+function resetTimer() {
+  clearTimeout(timer);
+  timer = setTimeout(nextClip, clipDuration * 1000);
+}
+
+function updateUI() {
+  document.getElementById('counter').innerText = `${currentIndex + 1} / ${currentPlaylist.length}`;
+}
+
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'Space') {
+    e.preventDefault(); 
+    nextClip();
+  }
+  if (e.code === 'KeyM') {
+    toggleSound();
+  }
+});
+</script>
+</body>
+</html>
