@@ -1,0 +1,10 @@
+{
+  "nature": [
+    { "url": "images/DNA Paternity.jpg", "caption": "DNA Paternity" },
+    { "url": "images/African Image.jpeg", "caption": "African Image" }
+      ],
+  "architecture": [
+    { "url": "images/African Image.jpeg", "caption": "African Image" },
+    { "url": "images/DNA Paternity.jpg", "caption": "DNA Paternity" }
+  ]
+}
