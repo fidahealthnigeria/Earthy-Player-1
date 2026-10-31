@@ -336,8 +336,19 @@ document.getElementById("prev").onclick = () => { prev(); start(); };
 playBtn.onclick = togglePlay;
 
 document.getElementById("fs").onclick = () => {
-    if (!document.fullscreenElement) document.getElementById("app").requestFullscreen();
-    else document.exitFullscreen();
+    const app = document.getElementById("app");
+    // Try real fullscreen first (desktop)
+    if (document.fullscreenEnabled && !document.fullscreenElement) {
+        app.requestFullscreen().catch(() => {
+            // Fallback for mobile
+            app.classList.toggle("mobile-fs");
+        });
+    } else if (document.fullscreenElement) {
+        document.exitFullscreen();
+    } else {
+        // Mobile fallback
+        app.classList.toggle("mobile-fs");
+    }
 };
 
 document.getElementById("audioFile").onchange = e => {
