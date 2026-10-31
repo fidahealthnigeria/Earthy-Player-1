@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ken Burns Slideshow</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: #090d16;
+            font-family: system-ui, -apple-system, sans-serif;
+            color: #f8fafc;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 10px;
+        }
+        .app {
+            width: 94vw;
+            max-width: 980px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        :fullscreen { background: #090d16; padding: 10px; }
+        :fullscreen .app { width: 100%; max-width: 100%; height: 100%; }
+        :fullscreen .player { flex: 1; height: auto !important; }
+        .app.mobile-fs {
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            max-width: 100%;
+            height: 100%;
+            z-index: 9999;
+            background: #090d16;
+            padding: 8px;
+        }
+        .app.mobile-fs .player { flex: 1; height: auto; }
+        .bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: #1e293b;
+            padding: 6px 10px;
+            border-radius: 7px;
+            border: 1px solid #334155;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .group { display: flex; align-items: center; gap: 5px; }
+        label {
+            font-size: 10px;
+            font-weight: 600;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+        select, input[type="file"], input[type="range"] {
+            background: #0f172a;
+            color: #fff;
+            border: 1px solid #475569;
+            border-radius: 4px;
+            padding: 3px 6px;
+            font-size: 12px;
+        }
+        input[type="range"] { width: 70px; height: 4px; accent-color: #0284c7; padding: 0; }
+        .val { font-size: 11px; color: #38bdf8; min-width: 26px; }
+        input[type="file"]::file-selector-button {
+            background: #334155;
+            color: #fff;
+            border: none;
+            padding: 2px 5px;
+            border-radius: 3px;
+            font-size: 11px;
+            margin-right: 4px;
+        }
+        .player {
+            position: relative;
+            width: 100%;
+            height: 540px;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid #334155;
+        }
+        .slide {
+            position: absolute;
+            inset: 0;
+            opacity: 0;
+            transition: opacity 1.3s ease;
+            z-index: 1;
+        }
+        .slide.active { opacity: 1; z-index: 2; }
+        .slide img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scale(1);
+            will-change: transform;
+        }
+        .caption {
+            position: absolute;
+            bottom: 12px;
+            left: 12px;
+            background: rgba(15,23,42,0.9);
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            border: 1px solid #334155;
+        }
+        button {
+            background: #334155;
+            border: 1px solid #64748b;
+            color: #fff;
+            padding: 5px 9px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        button:hover { background: #475569; }
+        button.primary { background: #0284c7; border-color: #38bdf8; }
+        button.primary:hover { background: #0369a1; }
+        .counter, .status { font-size: 12px; color: #94a3b8; }
+    </style>
+</head>
+<body>
+<div class="app" id="app">
+    <div class="bar">
+        <div class="group">
+            <label>Audio</label>
+            <input type="file" id="audioFile" accept="audio/*">
+        </div>
+        <div class="group">
+            <label>Category</label>
+            <select id="category"></select>
+        </div>
+        <div class="group">
+            <label>Zoom</label>
+            <input type="range" id="zoom" min="1.1" max="1.8" step="0.1" value="1.3">
+            <span class="val" id="zoomVal">1.3x</span>
+        </div>
+        <div class="group">
+            <label>Speed</label>
+            <input type="range" id="speed" min="3" max="15" step="1" value="6">
+            <span class="val" id="speedVal">6s</span>
+        </div>
+        <div class="status" id="status">Loading pictures.json…</div>
+    </div>
+    <div class="player" id="player"></div>
+    <div class="bar">
+        <div class="group">
+            <button id="prev">❮</button>
+            <button id="play" class="primary">Pause</button>
+            <button id="next">❯</button>
+            <button id="mute">🔊</button>
+        </div>
+        <div class="group">
+            <button id="fs">⛶</button>
+            <span class="counter" id="counter">Slide 0 of 0</span>
+        </div>
+    </div>
+</div>
+<audio id="audio" loop></audio>
+<script>
+let slidesData = {};
+let category = "";
+let index = 0;
+let timer = null;
+let playing = true;
+let muted = false;
+let duration = 6000;
+let zoom = 1.3;
+
+const player = document.getElementById("player");
+const catSelect = document.getElementById("category");
+const playBtn = document.getElementById("play");
+const counter = document.getElementById("counter");
+const statusEl = document.getElementById("status");
+const audio = document.getElementById("audio");
+const muteBtn = document.getElementById("mute");
+
+async function loadJSON() {
+    try {
+        const res = await fetch("pictures.json");
+        if (!res.ok) throw new Error("pictures.json not found");
+        slidesData = await res.json();
+        statusEl.textContent = "Loaded pictures.json";
+        loadCategories();
+    } catch (err) {
+        statusEl.textContent = "Could not load pictures.json";
+        console.error(err);
+        slidesData = { demo: [{ url: "https://picsum.photos/1200/800", caption: "Demo image" }] };
+        loadCategories();
+    }
+}
+
+function loadCategories() {
+    catSelect.innerHTML = "";
+    const keys = Object.keys(slidesData);
+    if (!keys.length) return;
+    keys.forEach(key => {
+        const opt = document.createElement("option");
+        opt.value = key;
+        opt.textContent = key.charAt(0).toUpperCase() + key.slice(1);
+        catSelect.appendChild(opt);
+    });
+    category = keys[0];
+    catSelect.value = category;
+    build();
+}
+
+function build() {
+    player.innerHTML = "";
+    index = 0;
+    const items = slidesData[category] || [];
+    items.forEach(item => {
+        const slide = document.createElement("div");
+        slide.className = "slide";
+        const img = document.createElement("img");
+        img.src = item.url;
+        img.alt = item.caption || "";
+        img.onerror = () => { img.style.opacity = "0.3"; };
+        slide.appendChild(img);
+        if (item.caption) {
+            const cap = document.createElement("div");
+            cap.className = "caption";
+            cap.textContent = item.caption;
+            slide.appendChild(cap);
+        }
+        player.appendChild(slide);
+    });
+    if (items.length) show(0, true);
+    updateCounter();
+    start();
+}
+
+function applyZoom(img, origin = "center center") {
+    img.style.transition = "none";
+    img.style.transformOrigin = origin;
+    img.style.transform = "scale(1)";
+    void img.offsetWidth;
+    img.style.transition = `transform ${duration / 1000}s linear`;
+    img.style.transform = `scale(${zoom})`;
+}
+
+function show(i, init = false) {
+    const slides = player.querySelectorAll(".slide");
+    if (!slides.length) return;
+    const prev = slides[index];
+    if (prev && !init) {
+        const img = prev.querySelector("img");
+        if (img) {
+            img.style.transition = "none";
+            img.style.transform = getComputedStyle(img).transform;
+        }
+        prev.classList.remove("active");
+    }
+    index = (i + slides.length) % slides.length;
+    const next = slides[index];
+    const origins = ["center center", "top left", "bottom right", "top right", "bottom left"];
+    const origin = origins[Math.floor(Math.random() * origins.length)];
+    next.className = "slide active";
+    const img = next.querySelector("img");
+    if (img) applyZoom(img, origin);
+    updateCounter();
+}
+
+function next() { show(index + 1); }
+function prev() { show(index - 1); }
+function updateCounter() {
+    const len = (slidesData[category] || []).length;
+    counter.textContent = `Slide ${index + 1} of ${len}`;
+}
+function start() {
+    clearInterval(timer);
+    if (playing && (slidesData[category] || []).length > 1) {
+        timer = setInterval(next, duration);
+    }
+}
+function togglePlay() {
+    playing = !playing;
+    playBtn.textContent = playing ? "Pause" : "Play";
+    playBtn.classList.toggle("primary", playing);
+    start();
+}
+
+catSelect.onchange = e => { category = e.target.value; build(); };
+document.getElementById("zoom").oninput = e => {
+    zoom = +e.target.value;
+    document.getElementById("zoomVal").textContent = zoom.toFixed(1) + "x";
+    const img = player.querySelector(".slide.active img");
+    if (img) img.style.transform = `scale(${zoom})`;
+};
+document.getElementById("speed").oninput = e => {
+    duration = Math.max(3, +e.target.value) * 1000;
+    document.getElementById("speedVal").textContent = (duration / 1000) + "s";
+    const img = player.querySelector(".slide.active img");
+    if (img) img.style.transition = `transform ${duration / 1000}s linear`;
+    start();
+};
+document.getElementById("next").onclick = () => { next(); start(); };
+document.getElementById("prev").onclick = () => { prev(); start(); };
+playBtn.onclick = togglePlay;
+document.getElementById("fs").onclick = () => {
+    const app = document.getElementById("app");
+    if (document.fullscreenEnabled && !document.fullscreenElement) {
+        app.requestFullscreen().catch(() => app.classList.toggle("mobile-fs"));
+    } else if (document.fullscreenElement) {
+        document.exitFullscreen();
+    } else {
+        app.classList.toggle("mobile-fs");
+    }
+};
+document.getElementById("audioFile").onchange = e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    audio.src = URL.createObjectURL(file);
+    audio.muted = muted;
+    audio.play().catch(() => {});
+};
+muteBtn.onclick = () => {
+    muted = !muted;
+    audio.muted = muted;
+    muteBtn.textContent = muted ? "🔇" : "🔊";
+};
+document.addEventListener("keydown", e => {
+    if (["INPUT", "SELECT"].includes(e.target.tagName)) return;
+    if (e.code === "ArrowRight") { next(); start(); }
+    if (e.code === "ArrowLeft") { prev(); start(); }
+    if (e.code === "Space") { e.preventDefault(); togglePlay(); }
+    if (e.code === "KeyM") muteBtn.click();
+    if (e.code === "KeyF") document.getElementById("fs").click();
+});
+loadJSON();
+</script>
+</body>
+</html>
+
+
+
+
+
